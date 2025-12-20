@@ -12,16 +12,57 @@
 
 void handle_client(int client_socket)
 {
-    char buffer[BUFFER_SIZE] = {0};
-    int bytes_read = recv(client_socket, buffer, BUFFER_SIZE, 0);
+    // Set a timeout for receiving data
+    struct timeval timeout;
+    timeout.tv_sec = 5;  // 5 seconds timeout
+    timeout.tv_usec = 0; // 0 microseconds
 
-    if (bytes_read > 0)
+    if (setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout)) < 0)
     {
-        buffer[bytes_read] = '\0';
-        std::cout << "[*] Received: \n"
-                  << buffer << '\n';
+        std::cerr << "[-] Failed to set socket options\n";
+        close(client_socket);
+        return;
     }
+    std::string totalRequest = "";
+    char buffer[BUFFER_SIZE];
+    ssize_t bytesRead;
 
+    // Read data from the client
+    while (true)
+    {
+        int bytesRead = recv(client_socket, buffer, BUFFER_SIZE - 1, 0);
+        if (bytesRead > 0)
+        {
+            buffer[bytesRead] = '\0';
+            totalRequest += std::string(buffer);
+            // Check if we have received the end of the HTTP headers
+            if (totalRequest.find("\r\n\r\n") != std::string::npos)
+            {
+                break;
+            }
+        }
+        else if (bytesRead == 0)
+        {
+            // Connection closed by client
+            break;
+        }
+        else
+        {
+            // Error or timeout
+            if (errno == EWOULDBLOCK || errno == EAGAIN)
+            {
+                std::cerr << "[-] Receive timeout\n";
+            }
+            else
+            {
+                std::cerr << "[-] Receive error\n";
+            }
+            close(client_socket);
+            return;
+        }
+    }
+    std::cout << "[*] Received request:\n"
+              << totalRequest << '\n';
     close(client_socket);
 }
 
