@@ -1,18 +1,7 @@
 #include <iostream>
 #include <string>
 #include <sstream>
-
-struct HttpRequest
-{
-    std::string method;
-    std::string host;
-    std::string path;
-    std::string httpVersion;
-    std::string ContentType;
-    std::string body;
-    int ContentLength;
-    int port;
-};
+#include "../include/httpReq.h"
 
 HttpRequest parseHttpRequest(const std::string &request)
 {
@@ -99,6 +88,7 @@ HttpRequest parseHttpRequest(const std::string &request)
     return httpreq;
 }
 
+/*
 int main()
 {
     std::string httpRequestStr = R"(POST /create-user HTTP/1.1
@@ -124,3 +114,4 @@ Content-Length: 81
 
     return 0;
 }
+*/

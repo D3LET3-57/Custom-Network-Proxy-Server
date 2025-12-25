@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include "../include/httpReq.h"
 
 #define PORT 8080
 #define BUFFER_SIZE 1024
@@ -63,6 +64,13 @@ void handle_client(int client_socket)
     }
     std::cout << "[*] Received request:\n"
               << totalRequest << '\n';
+
+    HttpRequest request = parseHttpRequest(totalRequest);
+    if (!forwardRequest(client_socket, request))
+    {
+        std::cerr << "[-] Failed to forward request\n";
+    }
+
     close(client_socket);
 }
 
