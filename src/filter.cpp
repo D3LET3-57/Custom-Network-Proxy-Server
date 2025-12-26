@@ -42,22 +42,3 @@ bool isBlocked(const std::string &host)
     }
     return false;
 }
-
-int main()
-{
-    blockedHosts = loadBlockedHosts();
-    std::cout << "[*] Loaded " << blockedHosts.size() << " blocked hosts.\n";
-
-    // Example usage
-    std::string testHost = "example.com";
-    if (isBlocked(testHost))
-    {
-        std::cout << "[*] Host " << testHost << " is blocked.\n";
-    }
-    else
-    {
-        std::cout << "[*] Host " << testHost << " is allowed.\n";
-    }
-
-    return 0;
-}
