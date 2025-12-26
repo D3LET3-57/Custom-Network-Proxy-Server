@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include "../include/httpReq.h"
+#include "../include/filter.h"
 
 #define PORT 8080
 #define BUFFER_SIZE 1024
@@ -76,6 +77,7 @@ void handle_client(int client_socket)
 
 int main()
 {
+    loadBlockedHosts();
     int server_socket;
     struct sockaddr_in server_addr;
 

@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include "../include/filter.h"
 
 int openConnection(const HttpRequest &request)
 {
@@ -45,6 +46,11 @@ int openConnection(const HttpRequest &request)
 
 bool forwardRequest(int client_socket, const HttpRequest &request)
 {
+    if (isBlocked(request.host))
+    {
+        std::cerr << "[-] Request to blocked host: " << request.host << "\n";
+        return false;
+    }
     int server_socket = openConnection(request);
     if (server_socket < 0)
     {
