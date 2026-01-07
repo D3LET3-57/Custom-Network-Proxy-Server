@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include "../include/httpReq.h"
 #include "../include/filter.h"
+#include "../include/logger.h"
 
 #define PORT 8080
 #define BUFFER_SIZE 1024
@@ -14,6 +15,13 @@
 
 void handle_client(int client_socket)
 {
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+    getpeername(client_socket, (struct sockaddr *)&addr, &len);
+    char clientIP[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(addr.sin_addr), clientIP, INET_ADDRSTRLEN);
+    int clientPort = ntohs(addr.sin_port);
+
     // Set a timeout for receiving data
     struct timeval timeout;
     timeout.tv_sec = 5;  // 5 seconds timeout
@@ -27,7 +35,6 @@ void handle_client(int client_socket)
     }
     std::string totalRequest = "";
     char buffer[BUFFER_SIZE];
-    ssize_t bytesRead;
 
     // Read data from the client
     while (true)
@@ -67,16 +74,32 @@ void handle_client(int client_socket)
               << totalRequest << '\n';
 
     HttpRequest request = parseHttpRequest(totalRequest);
-    if (!forwardRequest(client_socket, request))
+    ForwardResult result = forwardRequest(client_socket, request);
+
+    if (!result.success && result.action == "ALLOWED")
     {
         std::cerr << "[-] Failed to forward request\n";
     }
+
+    std::string requestLine = totalRequest.substr(0, totalRequest.find('\r'));
+    if (requestLine.empty())
+        requestLine = "UNKNOWN";
+
+    Logger::getInstance().log(clientIP, clientPort,
+                              request.host, request.port > 0 ? request.port : 80,
+                              requestLine,
+                              result.action,
+                              result.statusCode,
+                              result.bytesTransferred);
 
     close(client_socket);
 }
 
 int main()
 {
+    // Initialize logger before anything else
+    Logger::getInstance();
+
     loadBlockedHosts();
     int server_socket;
     struct sockaddr_in server_addr;
