@@ -15,7 +15,15 @@ struct HttpRequest
     int port;
 };
 
+struct ForwardResult
+{
+    bool success;
+    int statusCode;
+    size_t bytesTransferred;
+    std::string action;
+};
+
 HttpRequest parseHttpRequest(const std::string &request);
-bool forwardRequest(int client_socket, const HttpRequest &request);
+ForwardResult forwardRequest(int client_socket, const HttpRequest &request);
 
 #endif // HTTPREQ_H
