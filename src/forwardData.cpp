@@ -5,7 +5,13 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <sys/select.h>
+#include <fcntl.h>
+#include <errno.h>
 #include "../include/filter.h"
+
+#define TUNNEL_BUFFER_SIZE 8192
+#define TUNNEL_TIMEOUT_SEC 60
 
 int openConnection(const HttpRequest &request)
 {
@@ -150,6 +156,185 @@ ForwardResult forwardRequest(int client_socket, const HttpRequest &request)
         close(server_socket);
         // result.success is false by default
         return result;
+    }
+
+    close(server_socket);
+    result.success = true;
+    return result;
+}
+
+// Set socket to non-blocking mode
+static bool setNonBlocking(int socket)
+{
+    int flags = fcntl(socket, F_GETFL, 0);
+    if (flags == -1)
+        return false;
+    return fcntl(socket, F_SETFL, flags | O_NONBLOCK) != -1;
+}
+
+// Handle HTTPS CONNECT tunneling
+ForwardResult handleConnect(int client_socket, const HttpRequest &request)
+{
+    ForwardResult result = {false, 0, 0, "UNKNOWN"};
+
+    // Check if the host is blocked
+    if (isBlocked(request.host))
+    {
+        std::cerr << "[-] CONNECT to blocked host: " << request.host << "\n";
+        result.action = "BLOCKED";
+        result.statusCode = 403;
+
+        std::string forbidden = "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n";
+        send(client_socket, forbidden.c_str(), forbidden.size(), 0);
+        return result;
+    }
+
+    result.action = "TUNNEL";
+
+    // Establish connection to the target server
+    int server_socket = openConnection(request);
+    if (server_socket < 0)
+    {
+        std::cerr << "[-] Failed to connect to " << request.host << ":" << request.port << "\n";
+        result.statusCode = 502;
+
+        std::string badGateway = "HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n";
+        send(client_socket, badGateway.c_str(), badGateway.size(), 0);
+        return result;
+    }
+
+    // Send 200 Connection Established response to client
+    std::string established = "HTTP/1.1 200 Connection Established\r\n\r\n";
+    if (send(client_socket, established.c_str(), established.size(), 0) < 0)
+    {
+        std::cerr << "[-] Failed to send connection established response\n";
+        close(server_socket);
+        result.statusCode = 500;
+        return result;
+    }
+
+    result.statusCode = 200;
+
+    // Set both sockets to non-blocking for bidirectional forwarding
+    if (!setNonBlocking(client_socket) || !setNonBlocking(server_socket))
+    {
+        std::cerr << "[-] Failed to set non-blocking mode\n";
+        close(server_socket);
+        return result;
+    }
+
+    // Bidirectional data forwarding using select()
+    char buffer[TUNNEL_BUFFER_SIZE];
+    fd_set readfds;
+    int maxfd = std::max(client_socket, server_socket) + 1;
+
+    while (true)
+    {
+        FD_ZERO(&readfds);
+        FD_SET(client_socket, &readfds);
+        FD_SET(server_socket, &readfds);
+
+        struct timeval timeout;
+        timeout.tv_sec = TUNNEL_TIMEOUT_SEC;
+        timeout.tv_usec = 0;
+
+        int activity = select(maxfd, &readfds, nullptr, nullptr, &timeout);
+
+        if (activity < 0)
+        {
+            if (errno == EINTR)
+                continue; // Interrupted, retry
+            std::cerr << "[-] Select error in tunnel\n";
+            break;
+        }
+        else if (activity == 0)
+        {
+            // Timeout - no activity for TUNNEL_TIMEOUT_SEC seconds
+            std::cerr << "[-] Tunnel timeout\n";
+            break;
+        }
+
+        // Forward data from client to server
+        if (FD_ISSET(client_socket, &readfds))
+        {
+            ssize_t bytesRead = recv(client_socket, buffer, TUNNEL_BUFFER_SIZE, 0);
+            if (bytesRead <= 0)
+            {
+                if (bytesRead == 0)
+                {
+                    // Client closed connection
+                    break;
+                }
+                if (errno != EWOULDBLOCK && errno != EAGAIN)
+                {
+                    break;
+                }
+            }
+            else
+            {
+                // Send all data to server
+                ssize_t totalSent = 0;
+                while (totalSent < bytesRead)
+                {
+                    ssize_t sent = send(server_socket, buffer + totalSent, bytesRead - totalSent, 0);
+                    if (sent < 0)
+                    {
+                        if (errno == EWOULDBLOCK || errno == EAGAIN)
+                        {
+                            // Would block, wait a bit
+                            usleep(1000);
+                            continue;
+                        }
+                        break;
+                    }
+                    totalSent += sent;
+                }
+                if (totalSent < bytesRead)
+                    break;
+                result.bytesTransferred += bytesRead;
+            }
+        }
+
+        // Forward data from server to client
+        if (FD_ISSET(server_socket, &readfds))
+        {
+            ssize_t bytesRead = recv(server_socket, buffer, TUNNEL_BUFFER_SIZE, 0);
+            if (bytesRead <= 0)
+            {
+                if (bytesRead == 0)
+                {
+                    // Server closed connection
+                    break;
+                }
+                if (errno != EWOULDBLOCK && errno != EAGAIN)
+                {
+                    break;
+                }
+            }
+            else
+            {
+                // Send all data to client
+                ssize_t totalSent = 0;
+                while (totalSent < bytesRead)
+                {
+                    ssize_t sent = send(client_socket, buffer + totalSent, bytesRead - totalSent, 0);
+                    if (sent < 0)
+                    {
+                        if (errno == EWOULDBLOCK || errno == EAGAIN)
+                        {
+                            // Would block, wait a bit
+                            usleep(1000);
+                            continue;
+                        }
+                        break;
+                    }
+                    totalSent += sent;
+                }
+                if (totalSent < bytesRead)
+                    break;
+                result.bytesTransferred += bytesRead;
+            }
+        }
     }
 
     close(server_socket);

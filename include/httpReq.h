@@ -25,5 +25,6 @@ struct ForwardResult
 
 HttpRequest parseHttpRequest(const std::string &request);
 ForwardResult forwardRequest(int client_socket, const HttpRequest &request);
+ForwardResult handleConnect(int client_socket, const HttpRequest &request);
 
 #endif // HTTPREQ_H
