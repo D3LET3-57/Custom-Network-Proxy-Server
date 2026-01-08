@@ -74,11 +74,21 @@ void handle_client(int client_socket)
               << totalRequest << '\n';
 
     HttpRequest request = parseHttpRequest(totalRequest);
-    ForwardResult result = forwardRequest(client_socket, request);
+    ForwardResult result;
 
-    if (!result.success && result.action == "ALLOWED")
+    // Check if this is a CONNECT request (HTTPS tunneling)
+    if (request.method == "CONNECT")
     {
-        std::cerr << "[-] Failed to forward request\n";
+        std::cout << "[*] CONNECT tunnel request to " << request.host << ":" << request.port << "\n";
+        result = handleConnect(client_socket, request);
+    }
+    else
+    {
+        result = forwardRequest(client_socket, request);
+        if (!result.success && result.action == "ALLOWED")
+        {
+            std::cerr << "[-] Failed to forward request\n";
+        }
     }
 
     std::string requestLine = totalRequest.substr(0, totalRequest.find('\r'));
@@ -86,7 +96,7 @@ void handle_client(int client_socket)
         requestLine = "UNKNOWN";
 
     Logger::getInstance().log(clientIP, clientPort,
-                              request.host, request.port > 0 ? request.port : 80,
+                              request.host, request.port > 0 ? request.port : 443,
                               requestLine,
                               result.action,
                               result.statusCode,

@@ -76,7 +76,8 @@ HttpRequest parseHttpRequest(const std::string &request)
     }
     else
     {
-        httpreq.port = 80; // Default to 80
+        // Default port: 443 for CONNECT (HTTPS), 80 for others (HTTP)
+        httpreq.port = (httpreq.method == "CONNECT") ? 443 : 80;
     }
 
     if (httpreq.ContentLength > 0)
